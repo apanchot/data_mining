@@ -7,24 +7,22 @@ warnings.filterwarnings("ignore")
 
 #Imports
 import math
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import numpy as np
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from sklearn.metrics import mean_squared_error
+from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
 from copy import deepcopy
 from sklearn.svm import LinearSVR
 import seaborn as sns
 from sklearn import preprocessing
 
-
-
-
-#function for split the DataFrame in data complete and incomplete
+#Function to split the DataFrame in data complete and incomplete
 def split(data_insurance, reset_index = False):
     data_insurance_complete = pd.DataFrame()
     data_insurance_incomplete = data_insurance[data_insurance.isna().any(axis=1)]
@@ -34,13 +32,91 @@ def split(data_insurance, reset_index = False):
     data_insurance_complete = data_insurance[~data_insurance.isna().any(axis=1)]
     return data_insurance_complete, data_insurance_incomplete
 
+#Function to rescale or normalize the dataframe, remove Customer Identity
+def rescale_and_normalize(data_insurance):
+    
+    scaled_data_insurance = deepcopy(data_insurance)
+
+    #define function for scaling
+    def scale(df, values):
+        for i in values:
+            my_max = float(df.iloc[:,[i]].max())
+            my_min = float(df.iloc[:,[i]].min())
+            for j in range(df.shape[0]):
+                scaled_data_insurance.iat[j,i] = (df.iat[j,i] - my_min) / (my_max - my_min)
+        return scaled_data_insurance
+    
+    #define function for normalizing
+    def norm(df, values):
+        for i, name in enumerate(values):
+            my_max = float(df.iloc[:,[i]].max())
+            for j in range(df.shape[0]):
+                scaled_data_insurance.iat[j,i] = (df.iat[j,i] / my_max)
+        return scaled_data_insurance
+    
+    #scaling
+    columns_for_scaling = dict([(1,scaled_data_insurance.columns[0]),
+                           (3,scaled_data_insurance.columns[2]),
+                           (6,scaled_data_insurance.columns[5]),
+                           (7,scaled_data_insurance.columns[6]),
+                           (8,scaled_data_insurance.columns[7]),
+                           (9,scaled_data_insurance.columns[8]),
+                           (10,scaled_data_insurance.columns[9]),
+                           (11,scaled_data_insurance.columns[10]),
+                           (12,scaled_data_insurance.columns[11]),
+                           (13,scaled_data_insurance.columns[12])])
+    scaled_data_insurance = scale(scaled_data_insurance, columns_for_scaling)
+
+    #normalizing
+    columns_for_normalizing = dict([(2,scaled_data_insurance.columns[1]),
+                               (4,scaled_data_insurance.columns[3])])
+    scaled_data_insurance = norm(scaled_data_insurance, columns_for_normalizing)
+    
+    return scaled_data_insurance 
+
+#Function to evaluate the best n_neighbors to use with KNN
+def evaluate_classifier(data_insurance, categorical_columns):
+    data_insurance_complete, data_insurance_incomplete = split(data_insurance, reset_index=True)
+
+    def create_and_fit_classifier(k):
+        clf = KNeighborsClassifier(n_neighbors=k)    
+        incomplete = deepcopy(data_insurance_incomplete)
+        complete = deepcopy(data_insurance_complete)   
+        X_train, X_test, y_train, y_test = train_test_split(complete.loc[:,complete.columns != value].values,
+                                                            complete.loc[:,value].values, test_size = 0.2, random_state = 0)
+        trained_model = clf.fit(X_train, y_train)
+        result = [clf, y_test, X_test, trained_model, incomplete, complete]
+        return result
+    
+    accuracies_for_value_dict = {}
+
+    for index, value in enumerate(categorical_columns):
+
+        accuracy_dict = {}
+
+        for k in range(3,100):
+
+            result = create_and_fit_classifier(k)
+            clf = result[0]
+            y_test = result[1]
+            X_test = result[2]                                                
+            
+            #calculate the model accuracy and storing the value into a dictionary
+            y_pred = clf.predict(X_test)
+            accuracy_matrix = confusion_matrix(y_test, y_pred)
+            accuracy = accuracy_matrix.trace()/accuracy_matrix.sum()
+            accuracy_dict[k] = accuracy
+        
+        accuracies_for_value_dict[value] = accuracy_dict
+    
+    return accuracies_for_value_dict
+
 
 #Function that uses KNN to classify the missing values on CATEGORICAL columns
 def classify_categorical_data(data_insurance, categorical_columns):
     data_insurance_complete, data_insurance_incomplete = split(data_insurance, reset_index=True)
-
-    
-    #Creating a classifier to fill the categorical Educational Degree Data
+  
+    #Creating a classifier to fill the categorical data: Educational Degree, Geographic Living Area and Has Children (Y=1)
     for index, value in enumerate(categorical_columns):
         #index = 0
         #value = categorical_columns[0]
@@ -54,7 +130,7 @@ def classify_categorical_data(data_insurance, categorical_columns):
         
         trained_model = clf.fit(X_train, 
                                  y_train)
-        
+           
         #fill the numerical columns with the column mean
         incomplete.loc[:, ~incomplete.columns.isin(categorical_columns) ] = incomplete.loc[:, 
                                 ~incomplete.columns.isin(categorical_columns)].apply(lambda column: column.fillna(column.mean()), axis=0)
@@ -62,36 +138,31 @@ def classify_categorical_data(data_insurance, categorical_columns):
         #Round Age and First Policy's Year
         incomplete['Age'] = incomplete['Age'].apply(lambda x:round(x))
         incomplete['First Policy´s Year'] =  incomplete['First Policy´s Year'].apply(lambda x:round(x))
-        
-        
-        #Categorical columns insted the one we want to predic
+                
+        #Categorical columns with the exception of the one we want to predict
         cat_without_the_column = deepcopy(categorical_columns)
         cat_without_the_column.pop(index)
         
-        #Fill the categorical columns insted the one we want to predict with the column mode
+        #Fill the categorical columns with the exception of the one we want to predict with the mode
+        #(Hugo) Here I corrected the function to dataframe.mode instead of .mean
         incomplete.loc[:, incomplete.columns.isin(cat_without_the_column) ] = incomplete.loc[:, 
-                        incomplete.columns.isin(cat_without_the_column)].apply(lambda column: column.fillna(int(column.mean())), axis=0)
-
-        
-        
+                        incomplete.columns.isin(cat_without_the_column)].apply(lambda column: column.fillna(int(column.mode())), axis=0)
+              
         prediction = trained_model.predict(incomplete.loc[:,incomplete.columns != value])
         temp_df = pd.DataFrame(prediction.reshape(-1,1), columns = [value])
         
         
-        #now we are filling data_arrivals_incomplete 
+        #now we are filling data_insurance_incomplete 
         for ind in range(len(temp_df)):
             if np.isnan(data_insurance_incomplete[value][ind]):
                 data_insurance_incomplete[value][ind] = temp_df[value][ind]
 
 
-    #and filling the nan's on arrivals_df
+    #and reconstructing the original dataframe
     dataset = pd.concat([data_insurance_complete, data_insurance_incomplete])
     dataset.set_index(dataset['Customer Identity'] - 1, inplace=True)
     
     return dataset
-
-
-
 
 #funcion for checking which algorithm is the best for using on each column for NUMERICAL columns
 def checking_choices(data_insurance, number_of_tests=10):
@@ -235,7 +306,7 @@ def apply_regressors(choices, data_insurance, numerical_columns):
 #_________________________Cleaning and Filling the Data with the algorithms___________________________________________
 
 #Read the dataset
-insurance_df = pd.read_csv('https://raw.githubusercontent.com/apanchot/data_mining/master/A2Z_Insurance.csv')
+insurance_df = pd.read_csv('https://raw.githubusercontent.com/apanchot/data_mining/master/A2Z_Insurance.csv?token=ANHK7VCNE3LUXISDBRLXCM252CMEK')
 
 #Create Age column
 insurance_df['Age'] = insurance_df.loc[:, 'Brithday Year'].apply(lambda x : 2019 - x )
@@ -257,6 +328,10 @@ numerical_columns = ['Customer Identity','First Policy´s Year','Gross Monthly S
 
 data_insurance = deepcopy(insurance_df)
 
+#Dropping one evident wrong value in the dataframe
+#First Policy´s Year = 53784.0, index = 9294
+data_insurance.drop(9294, inplace=True)
+
 #Encoding Educational Degree and returning back the NaN's
 data_insurance['Educational Degree'] = data_insurance['Educational Degree'].apply(str)
 
@@ -266,7 +341,38 @@ data_insurance.loc[:,'Educational Degree'] = labelencoder_X.fit_transform(data_i
 
 data_insurance['Educational Degree'] = data_insurance['Educational Degree'].apply(lambda x : np.nan if x == 4 else x )
 
-#Fill categorical data with the KNN predited Values
+#Verify the optimal n_neighbors to our KNN classifiers
+scaled_data_insurance = rescale_and_normalize(data_insurance)
+scaled_data_insurance = scaled_data_insurance.drop(columns='Customer Identity')
+outliers = [7195,5882,8261,171,5293,8866,9149,7961]
+scaled_data_insurance = scaled_data_insurance.drop(scaled_data_insurance.index[outliers])
+accuracies_for_column_dict = evaluate_classifier(scaled_data_insurance, categorical_columns)
+fig, ax = plt.subplots(3, figsize=(15,5))
+fig.suptitle('KNN - Accuracy x n_neighbors')
+ax[0].plot(list(accuracies_for_column_dict['Educational Degree'].keys()),
+                                    list(accuracies_for_column_dict['Educational Degree'].values()),
+                                    'bx-') 
+ax[0].set_title('Educational Degree')
+ax[0].grid(True)
+
+ax[1].plot(list(accuracies_for_column_dict['Geographic Living Area'].keys()),
+                                    list(accuracies_for_column_dict['Geographic Living Area'].values()),
+                                    'bx-') 
+ax[1].set_title('Geographic Living Area')
+ax[0].grid(True)
+
+ax[2].plot(list(accuracies_for_column_dict['Has Children (Y=1)'].keys()),
+                                    list(accuracies_for_column_dict['Has Children (Y=1)'].values()),
+                                    'bx-') 
+ax[2].set_title('Has Children (Y=1)')
+ax[2].grid(True)
+
+for ax in ax.flat:
+    ax.set(xlabel='n_neighbors', ylabel='Accuracy')
+
+plt.show()
+
+#Fill categorical data with the KNN predicted Values
 data_insurance = classify_categorical_data(data_insurance, categorical_columns)
 
 #Fill numerical data with the best regressor algorithm
@@ -301,7 +407,7 @@ sns.pairplot(data_insurance[['Age',
 plt.show()
 
 
-#Eduaction x Premiuns
+#Education x Premiums
 sns.set_style("ticks")
 sns.pairplot(data_insurance[['Educational Degree',
                              'Premiums in LOB: Motor',
@@ -319,7 +425,7 @@ sns.pairplot(data_insurance[['Educational Degree',
 
 plt.show()
 
-#Gross Monthly x Premiuns
+#Gross Monthly x Premiums
 #Here we can see 2 outliers on GMS index 5882 and 8261 
 sns.set_style("ticks")
 sns.pairplot(data_insurance[['Gross Monthly Salary',
