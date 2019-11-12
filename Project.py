@@ -36,6 +36,9 @@ def split(data_insurance, reset_index = False):
 def rescale_and_normalize(data_insurance):
     
     scaled_data_insurance = deepcopy(data_insurance)
+    #scaled_data_insurance = scaled_data_insurance.drop(columns='Customer Identity')
+    outliers = [655,5084,7195,5882,8261,171,5293,8866,9149,7961,5293,5211,6835]
+    scaled_data_insurance.drop(outliers, inplace=True)
 
     #define function for scaling
     def scale(df, values):
@@ -343,9 +346,7 @@ data_insurance['Educational Degree'] = data_insurance['Educational Degree'].appl
 
 #Verify the optimal n_neighbors to our KNN classifiers
 scaled_data_insurance = rescale_and_normalize(data_insurance)
-scaled_data_insurance = scaled_data_insurance.drop(columns='Customer Identity')
-outliers = [7195,5882,8261,171,5293,8866,9149,7961]
-scaled_data_insurance = scaled_data_insurance.drop(scaled_data_insurance.index[outliers])
+scaled_data_insurance = scaled_data_insurance.drop(columns='Customer Identity')    
 accuracies_for_column_dict = evaluate_classifier(scaled_data_insurance, categorical_columns)
 fig, ax = plt.subplots(3, figsize=(15,5))
 fig.suptitle('KNN - Accuracy x n_neighbors')
