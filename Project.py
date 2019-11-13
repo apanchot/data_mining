@@ -22,6 +22,10 @@ from sklearn.svm import LinearSVR
 import seaborn as sns
 from sklearn import preprocessing
 
+env_params = {
+    "Outliers" : [655,5084,7195,5882,8261,171,5293,8866,9149,7961,5293,5211,6835],
+}
+
 #Function to split the DataFrame in data complete and incomplete
 def split(data_insurance, reset_index = False):
     data_insurance_complete = pd.DataFrame()
@@ -32,13 +36,17 @@ def split(data_insurance, reset_index = False):
     data_insurance_complete = data_insurance[~data_insurance.isna().any(axis=1)]
     return data_insurance_complete, data_insurance_incomplete
 
+def plotCorrelation(df):
+
+    sns.set()
+    fig, ax = plt.subplots(figsize=(15,10))
+    sns.heatmap(df.corr(method='pearson'), annot=True, fmt='.2f', vmin=-1, vmax=1, linewidths=.9, ax = ax).set_title('Variables correlation')
+
 #Function to rescale or normalize the dataframe, remove Customer Identity
 def rescale_and_normalize(data_insurance):
     
     scaled_data_insurance = deepcopy(data_insurance)
-    #scaled_data_insurance = scaled_data_insurance.drop(columns='Customer Identity')
-    outliers = [655,5084,7195,5882,8261,171,5293,8866,9149,7961,5293,5211,6835]
-    scaled_data_insurance.drop(outliers, inplace=True)
+    scaled_data_insurance.drop(env_params['Outliers'], inplace=True)
 
     #define function for scaling
     def scale(df, values):
@@ -346,7 +354,8 @@ data_insurance['Educational Degree'] = data_insurance['Educational Degree'].appl
 
 #Verify the optimal n_neighbors to our KNN classifiers
 scaled_data_insurance = rescale_and_normalize(data_insurance)
-scaled_data_insurance = scaled_data_insurance.drop(columns='Customer Identity')    
+scaled_data_insurance = scaled_data_insurance.drop(columns='Customer Identity')
+
 accuracies_for_column_dict = evaluate_classifier(scaled_data_insurance, categorical_columns)
 fig, ax = plt.subplots(3, figsize=(15,5))
 fig.suptitle('KNN - Accuracy x n_neighbors')
@@ -372,6 +381,15 @@ for ax in ax.flat:
     ax.set(xlabel='n_neighbors', ylabel='Accuracy')
 
 plt.show()
+
+#Adding the 'Premiums Sum' column and preparing to plot correlation
+plot_data_insurance = deepcopy(data_insurance)
+plot_data_insurance.drop(columns='Customer Identity', inplace=True)
+plot_data_insurance.drop(env_params['Outliers'], inplace=True)
+plot_data_insurance['Premium: Sum']=plot_data_insurance[['Premiums in LOB: Work Compensations','Premiums in LOB:  Life','Premiums in LOB: Health','Premiums in LOB: Household','Premiums in LOB: Motor']].sum(axis=1)
+
+#Plotting the Correlation
+plotCorrelation(plot_data_insurance)
 
 #Fill categorical data with the KNN predicted Values
 data_insurance = classify_categorical_data(data_insurance, categorical_columns)
